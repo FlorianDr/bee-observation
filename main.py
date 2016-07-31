@@ -15,7 +15,7 @@ DHT_TYPE = Adafruit_DHT.DHT22
 DHT_PIN = 4
 
 TIME_INTERVAL = 10
-TIME_INTERVAL_FEED = 'time_interval'
+BUFFER_SIZE = 3
 
 try:
     IO_USERNAME = os.environ['ADAFRUIT_API_USERNAME']
@@ -26,7 +26,6 @@ except KeyError as e:
 
 def connected(client):
     logger.info('Connected to Adafruit IO server')
-    client.subscribe(TIME_INTERVAL_FEED)
 
 def disconnected(client):
     retries = 1
@@ -39,9 +38,6 @@ def disconnected(client):
 
 def message(client, feed_id, payload):
     logger.debug('Feed {0} received new value: {1}'.format(feed_id, payload))
-    if feed_id is TIME_INTERVAL_FEED:
-        logger.info('Set sampling interval to {}'.format(payload))
-        TIME_INTERVAL = payload
 
 def measure():
     logger.debug('measure is called')
@@ -76,12 +72,33 @@ def main():
     logger.debug('Start background thread for messaging')
     client.loop_background()
 
+    temp_buffer = []
+    hum_buffer = []
     while True:
         humidity, temperature = measure()
         if humidity is not None and temperature is not None:
-            logger.info('Temperature={0:0.1f}, Humidity={1:0.1f}'.format(humidity, temperature))
-            publish(client, 'humidity', humidity)
-            publish(client, 'temperature', temperature)
+            logger.info('Temperature={0:0.1f}, Humidity={1:0.1f}'.format(temperature, humidity))
+            temp_buffer.append(temperature)
+            hum_buffer.append(humidity)
+
+        # Send median of last three records
+        if len(temp_buffer) == BUFFER_SIZE:
+            temp_buffer = sorted(temp_buffer)
+            temp_median = temp_buffer[BUFFER_SIZE // 2]
+            temp_median = round(temp_median, 1)
+            logger.debug('Rounded median of temp_buffer({}) is {}'.format(temp_buffer, temp_median))
+            publish(client, 'temperature', temp_median)
+            temp_buffer = []
+
+        # Send median of last three records
+        if len(hum_buffer) == BUFFER_SIZE:
+            hum_buffer = sorted(hum_buffer)
+            hum_median = hum_buffer[BUFFER_SIZE // 2]
+            hum_median = round(hum_median, 1)
+            logger.debug('Rounded median of hum_buffer({}) is {}'.format(hum_buffer, hum_median))
+            publish(client, 'humidity', hum_median)
+            hum_buffer = []
+
         sleep(TIME_INTERVAL)
 
 if __name__ == '__main__':
